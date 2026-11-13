@@ -19,6 +19,7 @@ It's a single HTML file with no sign-up, no server and no build step. Everything
   - **What next?** suggests the topic that's furthest behind its weekly goal (it nudges you to switch if you just did that topic). It also shows the next step you planned last time.
   - **Log a session manually** for practice done away from the timer.
 - **Progress**: today / streak / weekly goals per topic, a consistency heatmap, and weekly minutes by topic. Weekly goals and the date range are editable in Settings.
+- **A+ Exam**: target dates and a countdown for Core 1 (220-1201) and Core 2 (220-1202), a status for each exam domain (not started / learning / confident) with a readiness % weighted by how much of the exam each domain covers, a suggested pace and next domain, and a practice-test score chart with your target line. Mark your weakest domain on each practice test and it gets flagged.
 - **Resources**: a starter list of courses, channels and references for each topic, plus your own links. Tap the status button to cycle todo / doing / done.
 - **Notes**: a separate notebook for each topic. "One thing you learned" from a session lands here too. Notes come back for **review** after 1, 3, 7, 21 and 60 days. Give a note a title ending in "?" and it becomes a quiz question with a hidden answer.
 - **Checkpoints**: every 2–4 weeks, record a score or result per topic so improvement is visible.

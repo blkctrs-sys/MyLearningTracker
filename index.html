@@ -51,6 +51,14 @@ a{color:var(--acc)}
 .btns{display:flex;gap:8px;flex-wrap:wrap}.btns .btn{margin-top:10px}
 button.btn.alt{background:transparent;color:var(--tx);border:1px solid var(--line)}
 #tm{background:none;border:0;color:var(--acc);font:inherit;font-size:13px;cursor:pointer;padding:0;margin-left:8px}
+.dom{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.dom:first-of-type{border-top:0}
+.lv{font-size:11px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);cursor:pointer;background:none;color:var(--mut);flex:none;min-width:92px}
+.lv.l1{color:#ffb454;border-color:#ffb454}.lv.l2{color:#5fd39a;border-color:#5fd39a}
+.weak{font-size:11px;color:#ff6b81;margin-left:6px}
+#tip{position:fixed;z-index:20;pointer-events:none;background:#0b0e16;border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12px;display:none;max-width:220px}
+.chart text{fill:var(--mut);font-size:11px}
+code{font-size:12px}
 .note-body{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:4px}
 .chip .n{opacity:.7;margin-left:4px}
 </style>
@@ -60,6 +68,7 @@ button.btn.alt{background:transparent;color:var(--tx);border:1px solid var(--lin
 <nav id="nav"></nav>
 <main id="view"></main>
 <input type="file" id="imp" accept="application/json" hidden>
+<div id="tip"></div>
 <script>
 const TOPICS=[
  {id:'aplus',name:'CompTIA A+',color:'#4da3ff'},
@@ -122,10 +131,16 @@ const SEED_V=3;
 const DEFAULT_GOALS={aplus:210,neosoul:120,drawing:300,rigging:300,unreal:180};
 const OLD_GOALS={aplus:240,neosoul:150,drawing:240,rigging:180,unreal:360};
 const REVIEW_DAYS=[1,3,7,21,60];
+// CompTIA A+ V15 (220-1201 / 220-1202). Weights per CompTIA's published objectives; check the official PDF.
+const APLUS={
+ c1:{name:'Core 1',code:'220-1201',pass:675,color:'#3b8fe8',doms:[['c1m','Mobile Devices',13],['c1n','Networking',23],['c1h','Hardware',25],['c1v','Virtualization & Cloud Computing',11],['c1t','Hardware & Network Troubleshooting',28]]},
+ c2:{name:'Core 2',code:'220-1202',pass:700,color:'#c27c10',doms:[['c2o','Operating Systems',28],['c2s','Security',28],['c2t','Software Troubleshooting',23],['c2p','Operational Procedures',21]]}
+};
+const LV=['not started','learning','confident'];
 const seedRes=r=>({id:uid(),topic:r[0],title:r[1],url:r[2],note:r[3],status:'todo'});
 function fresh(){
  return {settings:{start:'2026-11-13',end:'2027-03-13',goals:{...DEFAULT_GOALS}},
-  logs:[],checks:[],clips:[],notes:[],next:{},modified:0,goalsV:2,
+  logs:[],checks:[],clips:[],notes:[],next:{},modified:0,goalsV:2,aplus:{c1date:'',c2date:'',target:85,dom:{},practice:[]},
   resources:SEED_RES.map(seedRes),seedV:SEED_V};
 }
 let S;
@@ -133,7 +148,8 @@ try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){S=null}
 if(!S||!S.settings)S=fresh();
 // Upgrades older saved data / backups. Does not count as a user change for sync.
 function migrate(){
- S.notes=S.notes||[];S.next=S.next||{};S.logs=S.logs||[];S.checks=S.checks||[];S.clips=S.clips||[];S.resources=S.resources||[];
+ S.notes=S.notes||[];S.next=S.next||{};
+ S.aplus=Object.assign({c1date:'',c2date:'',target:85,dom:{},practice:[]},S.aplus||{});S.logs=S.logs||[];S.checks=S.checks||[];S.clips=S.clips||[];S.resources=S.resources||[];
  S.notes.forEach(n=>{if(n.due===undefined){n.step=0;n.due=addDays(today(),1)}});
  if((S.seedV||1)<SEED_V){
   const have=new Set(S.resources.map(r=>r.topic+'|'+(r.url||r.title)));
@@ -180,7 +196,10 @@ function adopt(remote){S=remote;migrate();saveLocal();SY.base=S.modified||0;save
 function merge(a,b){
  const nw=(a.modified||0)>=(b.modified||0)?a:b, old=nw===a?b:a, out={...nw};
  ['logs','notes','checks','clips','resources'].forEach(k=>{const m=new Map((old[k]||[]).map(x=>[x.id,x]));(nw[k]||[]).forEach(x=>m.set(x.id,x));out[k]=[...m.values()]});
- out.next={...(old.next||{}),...(nw.next||{})};out.modified=Date.now();return out;
+ out.next={...(old.next||{}),...(nw.next||{})};
+ if(nw.aplus||old.aplus){const oa=old.aplus||{},na=nw.aplus||{},m=new Map((oa.practice||[]).map(x=>[x.id,x]));(na.practice||[]).forEach(x=>m.set(x.id,x));
+  out.aplus={...oa,...na,dom:{...(oa.dom||{}),...(na.dom||{})},practice:[...m.values()]}}
+ out.modified=Date.now();return out;
 }
 const localChanged=()=>(S.modified||0)!==(SY.base||0);
 async function pull(){
@@ -247,6 +266,10 @@ function tick(){
  document.title=`${c} · ${T.mode==='focus'?TN[T.topic].name:'Break'}`;
 }
 setInterval(tick,500);
+function showTip(el,x,y){const tp=$('#tip');tp.innerHTML=el.dataset.tip;tp.style.display='block';const w=tp.offsetWidth;tp.style.left=Math.min(innerWidth-w-8,Math.max(8,x-w/2))+'px';tp.style.top=(y-tp.offsetHeight-12)+'px'}
+document.addEventListener('pointerover',e=>{const el=e.target.closest&&e.target.closest('[data-tip]');if(el)showTip(el,e.clientX,e.clientY)});
+document.addEventListener('pointerout',e=>{if(e.target.closest&&e.target.closest('[data-tip]'))$('#tip').style.display='none'});
+document.addEventListener('scroll',()=>{$('#tip').style.display='none'},true);
 
 /* ---------- what next? ---------- */
 function suggestions(){
@@ -270,7 +293,7 @@ const dueNotes=()=>S.notes.filter(n=>n.due&&n.due<=today()).sort((a,b)=>a.due.lo
 
 let tab='log', fTopic=TOPICS[0].id, fMin=30, nTopic=TOPICS[0].id, nEdit=null;
 const drafts={};
-const TABS=[['log','Log'],['dash','Progress'],['res','Resources'],['notes','Notes'],['chk','Checkpoints'],['content','Content']];
+const TABS=[['log','Log'],['dash','Progress'],['exam','A+ Exam'],['res','Resources'],['notes','Notes'],['chk','Checkpoints'],['content','Content']];
 
 function byDay(){const m={};S.logs.forEach(l=>m[l.date]=(m[l.date]||0)+l.min);return m}
 function streak(){
@@ -458,7 +481,63 @@ function vNotes(){
   <button class="btn">Save note</button></form></div>
  <div class="card"><h2>${esc(x.name)} notes (${list.length})</h2>${list.length?list.map(item).join(''):'<span class="muted">No notes for this topic yet.</span>'}</div>`;
 }
-const VIEWS={log:vLog,dash:vDash,res:vRes,notes:vNotes,chk:vChk,content:vContent};
+function readiness(c){return Math.round(APLUS[c].doms.reduce((a,d)=>a+d[2]*[0,.5,1][S.aplus.dom[d[0]]||0],0))}
+function daysTo(d){return d?Math.ceil((parse(d)-parse(today()))/864e5):null}
+function scoreChart(){
+ const P=S.aplus.practice.filter(x=>x.score!=='').sort((a,b)=>a.date.localeCompare(b.date)), tg=+S.aplus.target||0;
+ if(!P.length)return '<div class="muted" style="font-size:13px">Add your first practice score below to start the trend line.</div>';
+ const W=360,H=200,l=28,r=74,t=12,b=22, t0=parse(P[0].date)-0, t1=Math.max(parse(P[P.length-1].date)-0,t0+864e5*7);
+ const lo=Math.max(0,Math.min(40,...P.map(x=>+x.score))-5);
+ const X=d=>l+(parse(d)-t0)/(t1-t0)*(W-l-r), Y=v=>t+(100-v)/(100-lo)*(H-t-b);
+ let g='';for(let v=Math.ceil(lo/20)*20;v<=100;v+=20)g+=`<line x1="${l}" x2="${W-r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#262b36"/><text x="${l-6}" y="${Y(v)+4}" text-anchor="end">${v}</text>`;
+ if(tg)g+=`<line x1="${l}" x2="${W-r}" y1="${Y(tg)}" y2="${Y(tg)}" stroke="#8b93a7" stroke-dasharray="4 4"/><text x="${l+4}" y="${Y(tg)-5}">target ${tg}%</text>`;
+ g+=`<text x="${l}" y="${H-6}">${esc(P[0].date)}</text><text x="${W-r}" y="${H-6}" text-anchor="end">${esc(ymd(new Date(t1)))}</text>`;
+ const labels=[];
+ ['c1','c2'].forEach(c=>{const pts=P.filter(x=>x.core===c);if(!pts.length)return;const col=APLUS[c].color;
+  if(pts.length>1)g+=`<polyline fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" points="${pts.map(x=>X(x.date)+','+Y(+x.score)).join(' ')}"/>`;
+  pts.forEach(x=>{g+=`<circle cx="${X(x.date)}" cy="${Y(+x.score)}" r="5" fill="${col}" stroke="#171a21" stroke-width="2"/><circle cx="${X(x.date)}" cy="${Y(+x.score)}" r="14" fill="transparent" data-tip="${esc(`${APLUS[c].name} · ${x.date}<br><b>${x.score}%</b>${x.source?' · '+esc(x.source):''}`)}"/>`});
+  const last=pts[pts.length-1];labels.push({y:Y(+last.score),txt:`${APLUS[c].name} ${last.score}%`,x:W-r});
+ });
+ if(labels.length===2&&Math.abs(labels[0].y-labels[1].y)<15){const [a,bb]=labels[0].y<labels[1].y?labels:[labels[1],labels[0]];const m=(a.y+bb.y)/2;a.y=m-8;bb.y=m+8}
+ labels.forEach(o=>g+=`<text x="${o.x+9}" y="${o.y+4}" style="fill:var(--tx)">${esc(o.txt)}</text>`);
+ const used=['c1','c2'].filter(c=>P.some(x=>x.core===c));
+ return `<div class="legend" style="margin:0 0 6px">${used.map(c=>`<span><span class="dot" style="background:${APLUS[c].color}"></span>${APLUS[c].name}</span>`).join('')}<span>┄ your target</span></div>
+  <svg class="chart" viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="Practice exam scores over time">${g}</svg>`;
+}
+function vExam(){
+ const A=S.aplus;
+ const coreCard=c=>{const C=APLUS[c],rd=readiness(c),dl=daysTo(A[c+'date']);
+  const left=C.doms.filter(d=>(A.dom[d[0]]||0)<2), weakN=id=>A.practice.filter(x=>x.weak===id).length;
+  const next=[...left].sort((a,b)=>(weakN(b[0])-weakN(a[0]))||((A.dom[a[0]]||0)-(A.dom[b[0]]||0))||(b[2]-a[2]))[0];
+  const best=Math.max(0,...A.practice.filter(x=>x.core===c).map(x=>+x.score||0));
+  let plan='';
+  if(!left.length)plan=`All domains marked confident. ${best>=A.target?'Practice scores are at target. You look ready to book it.':`Keep taking practice tests until you're consistently at ${A.target}%+.`}`;
+  else if(dl!==null&&dl>0)plan=`${left.length} domain${left.length>1?'s':''} to go in ${dl} days, so roughly <b>one every ${Math.max(1,Math.floor((dl-14)/left.length))} days</b> (leaves the last 2 weeks for practice tests).`;
+  else if(dl!==null&&dl<=0)plan='Exam date has passed. Update it above.';
+  else plan='Set a target date above to get a pace.';
+  return `<div class="card"><h2><span class="dot" style="background:${C.color}"></span>${C.name} (${C.code})${dl!==null&&dl>=0?` · ${dl} day${dl===1?'':'s'} to go`:''}</h2>
+   <div style="display:flex;justify-content:space-between;font-size:13px"><span>Readiness (weighted by exam %)</span><b>${rd}%</b></div>
+   <div class="bar"><i style="width:${rd}%;background:${C.color}"></i></div>
+   ${C.doms.map(d=>{const v=A.dom[d[0]]||0,w=weakN(d[0]);return `<div class="dom"><div><div>${esc(d[1])}</div><small class="muted">${d[2]}% of exam</small>${w?`<span class="weak">weak in ${w} practice test${w>1?'s':''}</span>`:''}</div><button class="lv l${v}" data-a="ad" data-v="${d[0]}">${LV[v]}</button></div>`}).join('')}
+   <div class="hint">${plan}${next?`<br>➡️ Next up: <b>${esc(next[1])}</b>`:''}</div>
+   <div class="muted" style="font-size:12px;margin-top:8px">Real exam: up to 90 questions in 90 minutes, multiple choice and performance-based. Pass mark ${C.pass} on a 100–900 scale.</div></div>`};
+ const prac=[...A.practice].sort((a,b)=>b.date.localeCompare(a.date));
+ const domOpts=['c1','c2'].map(c=>`<optgroup label="${APLUS[c].name}">${APLUS[c].doms.map(d=>`<option value="${d[0]}">${esc(d[1])}</option>`).join('')}</optgroup>`).join('');
+ return `<div class="card"><h2>Exam plan</h2>
+  <div class="muted" style="font-size:13px">A+ is <b>two exams</b>. You need to pass both Core 1 and Core 2 from the same series. Most people take Core 1 first.</div>
+  <div class="row"><div><label>Core 1 target date</label><input type="date" data-ax="c1date" value="${A.c1date}"></div><div><label>Core 2 target date</label><input type="date" data-ax="c2date" value="${A.c2date}"></div></div>
+  <div class="muted" style="font-size:12px;margin-top:8px">Tap a domain's status to cycle: not started → learning → confident. Get the full objectives list from the "CompTIA A+ exam objectives" link in Resources.</div></div>
+ ${coreCard('c1')}${coreCard('c2')}
+ <div class="card"><h2>Practice test scores</h2>${scoreChart()}
+  <form data-form="prac" style="margin-top:10px"><div class="row"><div><label>Exam</label><select name="core"><option value="c1">Core 1</option><option value="c2">Core 2</option></select></div>
+  <div><label>Date</label><input type="date" name="date" value="${today()}" required></div></div>
+  <div class="row"><div><label>Score (%)</label><input type="number" name="score" min="0" max="100" required></div><div><label>Weakest domain (optional)</label><select name="weak"><option value="">—</option>${domOpts}</select></div></div>
+  <label>Which practice test?</label><input name="source" placeholder="e.g. Messer practice exam 1">
+  <button class="btn">Add score</button></form>
+  <div class="row" style="margin-top:12px;align-items:end"><div><label>Your target on practice tests (%)</label><input type="number" min="1" max="100" data-ax="target" value="${A.target}"></div><div class="muted" style="font-size:12px">A rule of thumb, not the official pass mark: book the exam once you score this consistently.</div></div>
+  ${prac.length?`<div style="margin-top:10px">${prac.map(x=>`<div class="item"><div><span class="dot" style="background:${APLUS[x.core].color}"></span><b>${APLUS[x.core].name} · ${esc(x.score)}%</b>${x.source?` · ${esc(x.source)}`:''}<br><small>${esc(x.date)}${x.weak?` · weakest: ${esc((APLUS[x.weak.slice(0,2)].doms.find(d=>d[0]===x.weak)||[])[1]||'')}`:''}</small></div><button class="ghost" data-a="apd" data-v="${x.id}">✕</button></div>`).join('')}</div>`:''}</div>`;
+}
+const VIEWS={log:vLog,dash:vDash,exam:vExam,res:vRes,notes:vNotes,chk:vChk,content:vContent};
 
 function render(){
  const dn=dueNotes().length;
@@ -505,6 +584,8 @@ document.addEventListener('click',e=>{
  else if(a==='dr')S.resources=S.resources.filter(x=>x.id!==v);
  else if(a==='dc')S.checks=S.checks.filter(x=>x.id!==v);
  else if(a==='dp')S.clips=S.clips.filter(x=>x.id!==v);
+ else if(a==='ad')S.aplus.dom[v]=((S.aplus.dom[v]||0)+1)%3;
+ else if(a==='apd'){if(!confirm('Delete this practice score?'))return;S.aplus.practice=S.aplus.practice.filter(x=>x.id!==v)}
  else if(a==='nt'){nTopic=v;nEdit=null}
  else if(a==='ne')nEdit=v;
  else if(a==='nx')nEdit=null;
@@ -530,6 +611,7 @@ document.addEventListener('submit',e=>{
  else if(f.dataset.form==='chk')S.checks.push({id:uid(),topic:d.topic,date:d.date,score:d.score.trim(),note:d.note.trim()});
  else if(f.dataset.form==='note'){if(!d.body.trim())return;S.notes.push(newNote(nTopic,d.title,d.body));delete drafts[nTopic]}
  else if(f.dataset.form==='nedit'){const n=S.notes.find(x=>x.id===f.dataset.id);if(n&&d.body.trim()){n.title=d.title.trim();n.body=d.body.trim();n.updated=today()}nEdit=null}
+ else if(f.dataset.form==='prac'){S.aplus.practice.push({id:uid(),core:d.core,date:d.date,score:String(Math.max(0,Math.min(100,parseInt(d.score)||0))),source:d.source.trim(),weak:d.weak});tab='exam'}
  else if(f.dataset.form==='clip')S.clips.push({id:uid(),topic:d.topic,date:d.date,title:d.title.trim(),edited:false,yt:false,tw:false,ig:false});
  save();render();
 });
@@ -538,7 +620,8 @@ document.addEventListener('input',e=>{
 });
 document.addEventListener('change',e=>{
  const t=e.target;
- if(t.dataset.set){S.settings[t.dataset.set]=t.value;save();render()}
+ if(t.dataset.ax){S.aplus[t.dataset.ax]=t.dataset.ax==='target'?Math.max(1,Math.min(100,parseInt(t.value)||85)):t.value;save();render()}
+ else if(t.dataset.set){S.settings[t.dataset.set]=t.value;save();render()}
  else if(t.dataset.goal){S.settings.goals[t.dataset.goal]=Math.max(0,parseInt(t.value)||0);save();render()}
  else if(t.id==='imp'&&t.files[0]){
   const r=new FileReader();r.onload=()=>{try{const j=JSON.parse(r.result);if(!j.settings||!j.logs)throw 0;S=j;migrate();save();render()}catch(x){alert('That file is not a valid backup.')}};

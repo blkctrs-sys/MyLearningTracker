@@ -1,18 +1,22 @@
 # MyLearningTracker
-This repository is to help me track and organize my learning across a multitude of studies.
 
-A single-page site to log daily study/practice, watch your consistency, and keep resources and recordings organized. Runs entirely in the browser (no build step, no backend).
+**Live site:** https://blkctrs-sys.github.io/MyLearningTracker/
 
-## Put it on GitHub Pages
-1. Create a new GitHub repo (e.g. `learning-tracker`).
-2. Upload `index.html` (and this README) to the repo root.
-3. Repo **Settings → Pages → Build and deployment**: Source = "Deploy from a branch", Branch = `main`, folder = `/ (root)`. Save.
-4. After a minute your site is live at `https://<your-username>.github.io/learning-tracker/`.
+A personal learning tracker for keeping several skills moving at once. Log each study or practice session, see your streaks and weekly progress per topic, keep a curated list of learning resources, record checkpoints to measure improvement, and track which practice sessions you've recorded and posted as content.
+
+It's a single HTML file with no sign-up, no server and no build step. Everything is saved in your own browser.
+
+**Topics it's set up for right now:** CompTIA A+, neo soul (Pickup Music), figure/character drawing, Blender character rigging, and Unreal Engine game development. The topics live in `index.html` (the `TOPICS` list), so you can swap in your own.
+
+## Host your own copy (GitHub Pages)
+1. Fork this repo, or create a new one (e.g. `learning-tracker`) and upload `index.html` (and this README) to the repo root.
+2. Repo **Settings → Pages → Build and deployment**: Source = "Deploy from a branch", Branch = `main`, folder = `/ (root)`. Save.
+3. After a minute your site is live at `https://<your-username>.github.io/learning-tracker/`.
 
 ## Using it
 - **Log**: pick a topic, minutes, and a short note. Tick "Recorded" to drop it into the Content pipeline.
 - **Progress**: today / streak / weekly goals per topic, a consistency heatmap, and weekly minutes by topic. Weekly goals and the 4-month date range are editable at the bottom.
-- **Resources**: links per topic with todo / doing / done status.
+- **Resources**: a starter list of courses, channels and references for each topic, plus your own links. Tap the status button to cycle todo / doing / done.
 - **Checkpoints**: every 2–4 weeks, record a score or result per topic so improvement is visible.
 - **Content**: recorded sessions with tags for Edited, YouTube, Twitch, IG/TikTok.
 

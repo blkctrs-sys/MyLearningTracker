@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Learning Tracker</title>
+<style>
+:root{--bg:#0f1115;--card:#171a21;--line:#262b36;--tx:#e8eaf0;--mut:#8b93a7;--acc:#7c9cff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{padding:14px 16px 6px;max-width:900px;margin:0 auto}
+h1{margin:0;font-size:20px}
+#sub{color:var(--mut);font-size:13px}
+nav{display:flex;gap:6px;overflow-x:auto;padding:8px 16px;max-width:900px;margin:0 auto;position:sticky;top:0;background:var(--bg);z-index:5}
+nav button{flex:none;background:var(--card);color:var(--mut);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font:inherit;cursor:pointer}
+nav button.on{background:var(--acc);color:#0b0e16;border-color:var(--acc);font-weight:600}
+main{max-width:900px;margin:0 auto;padding:8px 16px 60px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:0 0 14px}
+.card h2{margin:0 0 10px;font-size:15px}
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+@media(min-width:600px){.tiles{grid-template-columns:repeat(4,1fr)}}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
+.tile b{display:block;font-size:22px}.tile span{color:var(--mut);font-size:12px}
+label{display:block;font-size:12px;color:var(--mut);margin:8px 0 3px}
+input,select,textarea{width:100%;background:#0f1218;color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:inherit}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button.btn{background:var(--acc);color:#0b0e16;border:0;border-radius:10px;padding:10px 14px;font:inherit;font-weight:600;cursor:pointer;margin-top:12px}
+button.ghost{background:transparent;color:var(--mut);border:1px solid var(--line);border-radius:8px;padding:4px 9px;font:inherit;font-size:12px;cursor:pointer}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px;color:var(--mut);cursor:pointer;background:transparent}
+.chip.on{color:#0b0e16;font-weight:600}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+.item{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line)}
+.item:first-of-type{border-top:0}
+.item small{color:var(--mut)}
+.bar{height:9px;background:#0f1218;border-radius:6px;overflow:hidden;margin:4px 0 10px}
+.bar i{display:block;height:100%}
+.heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,1fr);gap:3px}
+.heat div{aspect-ratio:1;border-radius:3px;background:#1b2029}
+.weeks{display:flex;align-items:flex-end;gap:4px;height:130px}
+.weeks .w{flex:1;display:flex;flex-direction:column-reverse;min-width:6px}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--mut);margin-top:8px}
+a{color:var(--acc)}
+.st{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);cursor:pointer;background:none;color:var(--mut)}
+.st.doing{color:#ffb454;border-color:#ffb454}.st.done{color:#5fd39a;border-color:#5fd39a}
+.pill{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);cursor:pointer;background:none;color:var(--mut);margin-right:4px}
+.pill.on{background:#5fd39a;color:#0b0e16;border-color:#5fd39a}
+.muted{color:var(--mut)}
+</style>
+</head>
+<body>
+<header><h1>Learning Tracker</h1><div id="sub"></div></header>
+<nav id="nav"></nav>
+<main id="view"></main>
+<input type="file" id="imp" accept="application/json" hidden>
+<script>
+const TOPICS=[
+ {id:'aplus',name:'CompTIA A+',color:'#4da3ff'},
+ {id:'neosoul',name:'Neo Soul (Pickup)',color:'#c58bff'},
+ {id:'drawing',name:'Drawing: People',color:'#ffb454'},
+ {id:'rigging',name:'Blender Rigging',color:'#5fd39a'},
+ {id:'unreal',name:'Unreal + Dodgeball',color:'#ff6b81'}
+];
+const TN=Object.fromEntries(TOPICS.map(t=>[t.id,t]));
+const KEY='learning-tracker-v1';
+const pad=n=>String(n).padStart(2,'0');
+const ymd=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parse=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)};
+const addDays=(s,n)=>{const d=parse(s);d.setDate(d.getDate()+n);return ymd(d)};
+const weekStart=s=>{const d=parse(s);d.setDate(d.getDate()-((d.getDay()+6)%7));return ymd(d)};
+const today=()=>ymd(new Date());
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=m=>m<60?`${m}m`:`${Math.floor(m/60)}h${m%60?` ${m%60}m`:''}`;
+const $=s=>document.querySelector(s);
+
+const SEED_RES=[
+ ['aplus','CompTIA A+ exam objectives','https://www.comptia.org/certifications/a','Download the objectives PDF and tick topics off as you go'],
+ ['aplus','Professor Messer A+ course','https://www.professormesser.com/',''],
+ ['neosoul','Pickup Music: Neo Soul course','https://www.pickupmusic.com/','Log which lesson you finished in the session note'],
+ ['drawing','Proko (figure drawing)','https://www.proko.com/',''],
+ ['drawing','Line of Action (timed gesture poses)','https://line-of-action.com/','Great for daily 15-minute warm-ups'],
+ ['rigging','Blender Manual (search "Rigging" / "Rigify")','https://docs.blender.org/manual/en/latest/',''],
+ ['rigging','Blender Studio','https://studio.blender.org/','Character rigging training and production files'],
+ ['unreal','Epic Developer Community: Learning','https://dev.epicgames.com/community/learning',''],
+ ['unreal','Unreal Engine documentation','https://dev.epicgames.com/documentation/en-us/unreal-engine/','']
+];
+function fresh(){
+ return {settings:{start:'2026-11-13',end:'2027-03-13',goals:{aplus:240,neosoul:150,drawing:240,rigging:180,unreal:360}},
+  logs:[],checks:[],clips:[],
+  resources:SEED_RES.map(r=>({id:uid(),topic:r[0],title:r[1],url:r[2],note:r[3],status:'todo'}))};
+}
+let S;
+try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){S=null}
+if(!S||!S.settings)S=fresh();
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+
+let tab='log', fTopic=TOPICS[0].id, fMin=30;
+const TABS=[['log','Log'],['dash','Progress'],['res','Resources'],['chk','Checkpoints'],['content','Content']];
+
+function byDay(){const m={};S.logs.forEach(l=>m[l.date]=(m[l.date]||0)+l.min);return m}
+function streak(){
+ const m=byDay();let d=today();if(!m[d])d=addDays(d,-1);
+ let n=0;while(m[d]){n++;d=addDays(d,-1)}return n;
+}
+function weekTotals(ws){const o=Object.fromEntries(TOPICS.map(t=>[t.id,0]));
+ const we=addDays(ws,6);S.logs.forEach(l=>{if(l.date>=ws&&l.date<=we)o[l.topic]+=l.min});return o}
+
+/* ---------- views ---------- */
+function vLog(){
+ const t=today();
+ const todayBy=Object.fromEntries(TOPICS.map(x=>[x.id,0]));
+ S.logs.filter(l=>l.date===t).forEach(l=>todayBy[l.topic]+=l.min);
+ const recent=[...S.logs].sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id)).slice(0,40);
+ return `<div class="card"><h2>Log a session</h2>
+ <form data-form="log">
+  <label>Topic</label>
+  <div class="chips">${TOPICS.map(x=>`<button type="button" class="chip ${x.id===fTopic?'on':''}" style="${x.id===fTopic?`background:${x.color};border-color:${x.color}`:''}" data-a="ft" data-v="${x.id}">${esc(x.name)}</button>`).join('')}</div>
+  <div class="row"><div><label>Date</label><input type="date" name="date" value="${t}" required></div>
+  <div><label>Minutes</label><input type="number" name="min" min="1" max="720" value="${fMin}" required></div></div>
+  <div class="chips">${[15,30,45,60,90,120].map(m=>`<button type="button" class="chip" data-a="fm" data-v="${m}">${m}m</button>`).join('')}</div>
+  <label>What did you do? (lesson, chapter, exercise, result)</label>
+  <textarea name="note" rows="2"></textarea>
+  <label style="display:flex;gap:8px;align-items:center;color:var(--tx)"><input type="checkbox" name="rec" style="width:auto"> Recorded this session (adds it to Content)</label>
+  <button class="btn">Add session</button>
+ </form></div>
+ <div class="card"><h2>Today</h2>${TOPICS.map(x=>`<div class="item"><span><span class="dot" style="background:${x.color}"></span>${esc(x.name)}</span><span class="${todayBy[x.id]?'':'muted'}">${todayBy[x.id]?fmt(todayBy[x.id]):'not yet'}</span></div>`).join('')}</div>
+ <div class="card"><h2>Recent sessions</h2>${recent.length?recent.map(l=>`<div class="item"><div><span class="dot" style="background:${TN[l.topic].color}"></span><b>${esc(TN[l.topic].name)}</b> · ${fmt(l.min)}${l.rec?' · 🎥':''}<br><small>${esc(l.date)}${l.note?' — '+esc(l.note):''}</small></div><button class="ghost" data-a="dl" data-v="${l.id}">✕</button></div>`).join(''):'<span class="muted">Nothing logged yet.</span>'}</div>`;
+}
+
+function heat(){
+ const {start,end}=S.settings;const m=byDay();const t=today();
+ let d=weekStart(start),cells='';
+ while(d<=end){
+  const v=m[d]||0;
+  const a=v===0?0:v<30?.25:v<90?.5:v<180?.75:1;
+  const out=d<start||d>end, fut=d>t;
+  cells+=`<div title="${d}: ${fmt(v)}" style="${a?`background:rgba(124,156,255,${a})`:''};${out||fut?'opacity:.35':''}"></div>`;
+  d=addDays(d,1);
+ }
+ return `<div class="heat">${cells}</div><div class="muted" style="font-size:12px;margin-top:6px">Each column is a week (Mon–Sun). Brighter = more minutes.</div>`;
+}
+
+function vDash(){
+ const t=today(), ws=weekStart(t), wt=weekTotals(ws), m=byDay();
+ const wkSum=Object.values(wt).reduce((a,b)=>a+b,0);
+ const left=Math.max(0,Math.ceil((parse(S.settings.end)-parse(t))/864e5));
+ // weekly stacked bars
+ const weeks=[];let w=weekStart(S.settings.start);const last=weekStart(t);
+ while(w<=last&&weeks.length<30){weeks.push(w);w=addDays(w,7)}
+ const wd=weeks.map(x=>({x,tot:weekTotals(x)}));
+ const mx=Math.max(60,...wd.map(o=>Object.values(o.tot).reduce((a,b)=>a+b,0)));
+ const allTime=Object.fromEntries(TOPICS.map(x=>[x.id,0]));S.logs.forEach(l=>allTime[l.topic]+=l.min);
+ return `<div class="tiles">
+  <div class="tile"><b>${fmt(m[t]||0)}</b><span>today</span></div>
+  <div class="tile"><b>${streak()} 🔥</b><span>day streak</span></div>
+  <div class="tile"><b>${fmt(wkSum)}</b><span>this week</span></div>
+  <div class="tile"><b>${left}</b><span>days left</span></div></div>
+ <div class="card"><h2>This week vs. goal</h2>${TOPICS.map(x=>{const g=(S.settings.goals[x.id]||0), p=g?Math.min(100,wt[x.id]/g*100):0;
+  return `<div><div style="display:flex;justify-content:space-between"><span><span class="dot" style="background:${x.color}"></span>${esc(x.name)}</span><span class="muted">${fmt(wt[x.id])} / ${fmt(g)}</span></div><div class="bar"><i style="width:${p}%;background:${x.color}"></i></div></div>`}).join('')}</div>
+ <div class="card"><h2>Consistency</h2>${heat()}</div>
+ <div class="card"><h2>Weekly minutes by topic</h2><div class="weeks">${wd.map(o=>`<div class="w" title="Week of ${o.x}">${TOPICS.map(x=>`<div style="height:${o.tot[x.id]/mx*120}px;background:${x.color}"></div>`).join('')}</div>`).join('')}</div>
+  <div class="legend">${TOPICS.map(x=>`<span><span class="dot" style="background:${x.color}"></span>${esc(x.name)}</span>`).join('')}</div></div>
+ <div class="card"><h2>All-time hours</h2>${TOPICS.map(x=>`<div class="item"><span><span class="dot" style="background:${x.color}"></span>${esc(x.name)}</span><b>${(allTime[x.id]/60).toFixed(1)}h</b></div>`).join('')}</div>
+ <div class="card"><h2>Settings</h2>
+  <div class="row"><div><label>Start date</label><input type="date" data-set="start" value="${S.settings.start}"></div><div><label>End date</label><input type="date" data-set="end" value="${S.settings.end}"></div></div>
+  <label>Weekly goals (minutes)</label>
+  ${TOPICS.map(x=>`<div class="item" style="align-items:center"><span><span class="dot" style="background:${x.color}"></span>${esc(x.name)}</span><input type="number" style="width:90px" min="0" data-goal="${x.id}" value="${S.settings.goals[x.id]||0}"></div>`).join('')}
+  <div class="chips" style="margin-top:12px"><button class="chip" data-a="exp">Export backup</button><button class="chip" data-a="imp">Import backup</button><button class="chip" data-a="reset">Reset everything</button></div>
+  <div class="muted" style="font-size:12px;margin-top:8px">Data lives in this browser. Export a backup now and then (weekly is plenty).</div></div>`;
+}
+
+function vRes(){
+ return `<div class="card"><h2>Add a resource</h2><form data-form="res">
+  <div class="row"><div><label>Topic</label><select name="topic">${TOPICS.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+  <div><label>Title</label><input name="title" required></div></div>
+  <label>Link</label><input name="url" type="url" placeholder="https://">
+  <label>Note</label><input name="note">
+  <button class="btn">Add</button></form></div>`+
+ TOPICS.map(x=>{const list=S.resources.filter(r=>r.topic===x.id);
+  return `<div class="card"><h2><span class="dot" style="background:${x.color}"></span>${esc(x.name)}</h2>${list.length?list.map(r=>`<div class="item"><div>${r.url?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>`:esc(r.title)}${r.note?`<br><small>${esc(r.note)}</small>`:''}</div><div style="display:flex;gap:6px;flex:none"><button class="st ${r.status}" data-a="rs" data-v="${r.id}">${r.status}</button><button class="ghost" data-a="dr" data-v="${r.id}">✕</button></div></div>`).join(''):'<span class="muted">Nothing yet.</span>'}</div>`}).join('');
+}
+
+function vChk(){
+ const ch=[...S.checks].sort((a,b)=>b.date.localeCompare(a.date));
+ return `<div class="card"><h2>Add a checkpoint</h2>
+  <div class="muted" style="font-size:13px;margin-bottom:6px">Do one per topic every 2–4 weeks so you can compare. Ideas: A+ practice exam score, one finished full-figure drawing, a rig you made, a playable build.</div>
+  <form data-form="chk"><div class="row"><div><label>Topic</label><select name="topic">${TOPICS.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+  <div><label>Date</label><input type="date" name="date" value="${today()}" required></div></div>
+  <label>Score / result (optional)</label><input name="score" placeholder="e.g. 72% on practice exam 1">
+  <label>How did it go? What's next?</label><textarea name="note" rows="2" required></textarea>
+  <button class="btn">Save</button></form></div>
+  <div class="card"><h2>History</h2>${ch.length?ch.map(c=>`<div class="item"><div><span class="dot" style="background:${TN[c.topic].color}"></span><b>${esc(TN[c.topic].name)}</b> · ${esc(c.date)}${c.score?` · <b>${esc(c.score)}</b>`:''}<br><small>${esc(c.note)}</small></div><button class="ghost" data-a="dc" data-v="${c.id}">✕</button></div>`).join(''):'<span class="muted">No checkpoints yet.</span>'}</div>`;
+}
+
+function vContent(){
+ const cl=[...S.clips].sort((a,b)=>b.date.localeCompare(a.date));
+ const P=[['edited','Edited'],['yt','YouTube'],['tw','Twitch'],['ig','IG/TikTok']];
+ const todo=cl.filter(c=>!(c.edited&&c.yt&&c.tw&&c.ig)).length;
+ return `<div class="card"><h2>Add a recording</h2><form data-form="clip">
+  <div class="row"><div><label>Topic</label><select name="topic">${TOPICS.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+  <div><label>Date</label><input type="date" name="date" value="${today()}" required></div></div>
+  <label>Title / idea</label><input name="title" required>
+  <button class="btn">Add</button></form>
+  <div class="muted" style="font-size:12px;margin-top:8px">Sessions logged with "Recorded" ticked show up here automatically. Tap a tag to mark it done.</div></div>
+ <div class="card"><h2>Pipeline (${todo} unfinished)</h2>${cl.length?cl.map(c=>`<div class="item"><div><span class="dot" style="background:${TN[c.topic].color}"></span><b>${esc(c.title)}</b><br><small>${esc(c.date)}</small><div style="margin-top:6px">${P.map(p=>`<button class="pill ${c[p[0]]?'on':''}" data-a="cp" data-v="${c.id}|${p[0]}">${p[1]}</button>`).join('')}</div></div><button class="ghost" data-a="dp" data-v="${c.id}">✕</button></div>`).join(''):'<span class="muted">No recordings yet.</span>'}</div>`;
+}
+const VIEWS={log:vLog,dash:vDash,res:vRes,chk:vChk,content:vContent};
+
+function render(){
+ $('#nav').innerHTML=TABS.map(t=>`<button class="${t[0]===tab?'on':''}" data-a="tab" data-v="${t[0]}">${t[1]}</button>`).join('');
+ $('#view').innerHTML=VIEWS[tab]();
+ const t=today(), n=S.logs.length;
+ $('#sub').textContent=`${S.settings.start} → ${S.settings.end} · ${n} session${n===1?'':'s'} logged`;
+}
+
+/* ---------- events ---------- */
+function download(name,text){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'application/json'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+document.addEventListener('click',e=>{
+ const b=e.target.closest('[data-a]');if(!b)return;
+ const a=b.dataset.a,v=b.dataset.v;
+ if(a==='tab')tab=v;
+ else if(a==='ft')fTopic=v;
+ else if(a==='fm'){fMin=+v;const i=document.querySelector('input[name=min]');if(i){i.value=v}return}
+ else if(a==='dl')S.logs=S.logs.filter(x=>x.id!==v);
+ else if(a==='dr')S.resources=S.resources.filter(x=>x.id!==v);
+ else if(a==='dc')S.checks=S.checks.filter(x=>x.id!==v);
+ else if(a==='dp')S.clips=S.clips.filter(x=>x.id!==v);
+ else if(a==='rs'){const r=S.resources.find(x=>x.id===v);r.status={todo:'doing',doing:'done',done:'todo'}[r.status]}
+ else if(a==='cp'){const [id,k]=v.split('|');const c=S.clips.find(x=>x.id===id);c[k]=!c[k]}
+ else if(a==='exp'){download(`learning-tracker-${today()}.json`,JSON.stringify(S,null,2));return}
+ else if(a==='imp'){$('#imp').click();return}
+ else if(a==='reset'){if(!confirm('Delete ALL data in this browser?'))return;S=fresh()}
+ save();render();
+});
+document.addEventListener('submit',e=>{
+ const f=e.target.closest('[data-form]');if(!f)return;e.preventDefault();
+ const d=Object.fromEntries(new FormData(f));
+ if(f.dataset.form==='log'){
+  const min=Math.max(1,parseInt(d.min)||0);fMin=min;
+  S.logs.push({id:uid(),date:d.date,topic:fTopic,min,note:d.note.trim(),rec:!!d.rec});
+  if(d.rec)S.clips.push({id:uid(),date:d.date,topic:fTopic,title:`${TN[fTopic].name}${d.note.trim()?': '+d.note.trim().slice(0,60):' session'}`,edited:false,yt:false,tw:false,ig:false});
+ }else if(f.dataset.form==='res')S.resources.push({id:uid(),topic:d.topic,title:d.title.trim(),url:d.url.trim(),note:d.note.trim(),status:'todo'});
+ else if(f.dataset.form==='chk')S.checks.push({id:uid(),topic:d.topic,date:d.date,score:d.score.trim(),note:d.note.trim()});
+ else if(f.dataset.form==='clip')S.clips.push({id:uid(),topic:d.topic,date:d.date,title:d.title.trim(),edited:false,yt:false,tw:false,ig:false});
+ save();render();
+});
+document.addEventListener('change',e=>{
+ const t=e.target;
+ if(t.dataset.set){S.settings[t.dataset.set]=t.value;save();render()}
+ else if(t.dataset.goal){S.settings.goals[t.dataset.goal]=Math.max(0,parseInt(t.value)||0);save();render()}
+ else if(t.id==='imp'&&t.files[0]){
+  const r=new FileReader();r.onload=()=>{try{const j=JSON.parse(r.result);if(!j.settings||!j.logs)throw 0;S=j;save();render()}catch(x){alert('That file is not a valid backup.')}};
+  r.readAsText(t.files[0]);t.value='';
+ }
+});
+render();
+</script>
+</body>
+</html>

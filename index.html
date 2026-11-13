@@ -46,6 +46,8 @@ a{color:var(--acc)}
 .pill{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);cursor:pointer;background:none;color:var(--mut);margin-right:4px}
 .pill.on{background:#5fd39a;color:#0b0e16;border-color:#5fd39a}
 .muted{color:var(--mut)}
+.note-body{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:4px}
+.chip .n{opacity:.7;margin-left:4px}
 </style>
 </head>
 <body>
@@ -110,12 +112,13 @@ const SEED_V=2;
 const seedRes=r=>({id:uid(),topic:r[0],title:r[1],url:r[2],note:r[3],status:'todo'});
 function fresh(){
  return {settings:{start:'2026-11-13',end:'2027-03-13',goals:{aplus:240,neosoul:150,drawing:240,rigging:180,unreal:360}},
-  logs:[],checks:[],clips:[],
+  logs:[],checks:[],clips:[],notes:[],
   resources:SEED_RES.map(seedRes),seedV:SEED_V};
 }
 let S;
 try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){S=null}
 if(!S||!S.settings)S=fresh();
+S.notes=S.notes||[];
 if((S.seedV||1)<SEED_V){
  const have=new Set(S.resources.map(r=>r.topic+'|'+(r.url||r.title)));
  SEED_RES.filter(r=>(r[4]||1)>(S.seedV||1)&&!have.has(r[0]+'|'+(r[2]||r[1]))).forEach(r=>S.resources.push(seedRes(r)));
@@ -123,8 +126,9 @@ if((S.seedV||1)<SEED_V){
 }
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 
-let tab='log', fTopic=TOPICS[0].id, fMin=30;
-const TABS=[['log','Log'],['dash','Progress'],['res','Resources'],['chk','Checkpoints'],['content','Content']];
+let tab='log', fTopic=TOPICS[0].id, fMin=30, nTopic=TOPICS[0].id, nEdit=null;
+const drafts={};
+const TABS=[['log','Log'],['dash','Progress'],['res','Resources'],['notes','Notes'],['chk','Checkpoints'],['content','Content']];
 
 function byDay(){const m={};S.logs.forEach(l=>m[l.date]=(m[l.date]||0)+l.min);return m}
 function streak(){
@@ -233,7 +237,26 @@ function vContent(){
   <div class="muted" style="font-size:12px;margin-top:8px">Sessions logged with "Recorded" ticked show up here automatically. Tap a tag to mark it done.</div></div>
  <div class="card"><h2>Pipeline (${todo} unfinished)</h2>${cl.length?cl.map(c=>`<div class="item"><div><span class="dot" style="background:${TN[c.topic].color}"></span><b>${esc(c.title)}</b><br><small>${esc(c.date)}</small><div style="margin-top:6px">${P.map(p=>`<button class="pill ${c[p[0]]?'on':''}" data-a="cp" data-v="${c.id}|${p[0]}">${p[1]}</button>`).join('')}</div></div><button class="ghost" data-a="dp" data-v="${c.id}">✕</button></div>`).join(''):'<span class="muted">No recordings yet.</span>'}</div>`;
 }
-const VIEWS={log:vLog,dash:vDash,res:vRes,chk:vChk,content:vContent};
+function vNotes(){
+ const x=TN[nTopic], dr=drafts[nTopic]||{title:'',body:''};
+ const list=S.notes.filter(n=>n.topic===nTopic).sort((a,b)=>(b.updated||b.date).localeCompare(a.updated||a.date));
+ const chips=TOPICS.map(t=>{const on=t.id===nTopic,c=S.notes.filter(n=>n.topic===t.id).length;
+  return `<button type="button" class="chip ${on?'on':''}" style="${on?`background:${t.color};border-color:${t.color}`:''}" data-a="nt" data-v="${t.id}">${esc(t.name)}${c?`<span class="n">${c}</span>`:''}</button>`}).join('');
+ const item=n=>n.id===nEdit
+  ?`<div class="item" style="display:block"><form data-form="nedit" data-id="${n.id}">
+    <label>Title (optional)</label><input name="title" value="${esc(n.title)}">
+    <label>Note</label><textarea name="body" rows="6" required>${esc(n.body)}</textarea>
+    <div style="display:flex;gap:8px"><button class="btn">Save changes</button><button type="button" class="ghost" style="margin-top:12px" data-a="nx">Cancel</button></div></form></div>`
+  :`<div class="item"><div style="min-width:0">${n.title?`<b>${esc(n.title)}</b><br>`:''}<small>${esc(n.date)}${n.updated&&n.updated!==n.date?` · edited ${esc(n.updated)}`:''}</small><div class="note-body">${esc(n.body)}</div></div>
+    <div style="display:flex;gap:6px;flex:none"><button class="ghost" data-a="ne" data-v="${n.id}">Edit</button><button class="ghost" data-a="nd" data-v="${n.id}">✕</button></div></div>`;
+ return `<div class="card"><h2>Notebook</h2><div class="chips">${chips}</div></div>
+ <div class="card"><h2><span class="dot" style="background:${x.color}"></span>New ${esc(x.name)} note</h2><form data-form="note">
+  <label>Title (optional)</label><input name="title" data-draft="title" value="${esc(dr.title)}" placeholder="e.g. Key takeaway from today">
+  <label>Note</label><textarea name="body" data-draft="body" rows="5" required placeholder="What you learned, questions, things to try next…">${esc(dr.body)}</textarea>
+  <button class="btn">Save note</button></form></div>
+ <div class="card"><h2>${esc(x.name)} notes (${list.length})</h2>${list.length?list.map(item).join(''):'<span class="muted">No notes for this topic yet.</span>'}</div>`;
+}
+const VIEWS={log:vLog,dash:vDash,res:vRes,notes:vNotes,chk:vChk,content:vContent};
 
 function render(){
  $('#nav').innerHTML=TABS.map(t=>`<button class="${t[0]===tab?'on':''}" data-a="tab" data-v="${t[0]}">${t[1]}</button>`).join('');
@@ -254,6 +277,10 @@ document.addEventListener('click',e=>{
  else if(a==='dr')S.resources=S.resources.filter(x=>x.id!==v);
  else if(a==='dc')S.checks=S.checks.filter(x=>x.id!==v);
  else if(a==='dp')S.clips=S.clips.filter(x=>x.id!==v);
+ else if(a==='nt'){nTopic=v;nEdit=null}
+ else if(a==='ne')nEdit=v;
+ else if(a==='nx')nEdit=null;
+ else if(a==='nd'){if(!confirm('Delete this note?'))return;S.notes=S.notes.filter(x=>x.id!==v)}
  else if(a==='rs'){const r=S.resources.find(x=>x.id===v);r.status={todo:'doing',doing:'done',done:'todo'}[r.status]}
  else if(a==='cp'){const [id,k]=v.split('|');const c=S.clips.find(x=>x.id===id);c[k]=!c[k]}
  else if(a==='exp'){download(`learning-tracker-${today()}.json`,JSON.stringify(S,null,2));return}
@@ -270,15 +297,20 @@ document.addEventListener('submit',e=>{
   if(d.rec)S.clips.push({id:uid(),date:d.date,topic:fTopic,title:`${TN[fTopic].name}${d.note.trim()?': '+d.note.trim().slice(0,60):' session'}`,edited:false,yt:false,tw:false,ig:false});
  }else if(f.dataset.form==='res')S.resources.push({id:uid(),topic:d.topic,title:d.title.trim(),url:d.url.trim(),note:d.note.trim(),status:'todo'});
  else if(f.dataset.form==='chk')S.checks.push({id:uid(),topic:d.topic,date:d.date,score:d.score.trim(),note:d.note.trim()});
+ else if(f.dataset.form==='note'){if(!d.body.trim())return;S.notes.push({id:uid(),topic:nTopic,date:today(),updated:today(),title:d.title.trim(),body:d.body.trim()});delete drafts[nTopic]}
+ else if(f.dataset.form==='nedit'){const n=S.notes.find(x=>x.id===f.dataset.id);if(n&&d.body.trim()){n.title=d.title.trim();n.body=d.body.trim();n.updated=today()}nEdit=null}
  else if(f.dataset.form==='clip')S.clips.push({id:uid(),topic:d.topic,date:d.date,title:d.title.trim(),edited:false,yt:false,tw:false,ig:false});
  save();render();
+});
+document.addEventListener('input',e=>{
+ const t=e.target;if(t.dataset.draft){(drafts[nTopic]=drafts[nTopic]||{title:'',body:''})[t.dataset.draft]=t.value}
 });
 document.addEventListener('change',e=>{
  const t=e.target;
  if(t.dataset.set){S.settings[t.dataset.set]=t.value;save();render()}
  else if(t.dataset.goal){S.settings.goals[t.dataset.goal]=Math.max(0,parseInt(t.value)||0);save();render()}
  else if(t.id==='imp'&&t.files[0]){
-  const r=new FileReader();r.onload=()=>{try{const j=JSON.parse(r.result);if(!j.settings||!j.logs)throw 0;S=j;save();render()}catch(x){alert('That file is not a valid backup.')}};
+  const r=new FileReader();r.onload=()=>{try{const j=JSON.parse(r.result);if(!j.settings||!j.logs)throw 0;S=j;S.notes=S.notes||[];save();render()}catch(x){alert('That file is not a valid backup.')}};
   r.readAsText(t.files[0]);t.value='';
  }
 });

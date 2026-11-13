@@ -83,16 +83,44 @@ const SEED_RES=[
  ['rigging','Blender Manual (search "Rigging" / "Rigify")','https://docs.blender.org/manual/en/latest/',''],
  ['rigging','Blender Studio','https://studio.blender.org/','Character rigging training and production files'],
  ['unreal','Epic Developer Community: Learning','https://dev.epicgames.com/community/learning',''],
- ['unreal','Unreal Engine documentation','https://dev.epicgames.com/documentation/en-us/unreal-engine/','']
+ ['unreal','Unreal Engine documentation','https://dev.epicgames.com/documentation/en-us/unreal-engine/',''],
+ // Added in seed version 2 (merged into existing saved data on load)
+ ['drawing','Proko: Figure Drawing Fundamentals','https://www.proko.com/course/figure-drawing-fundamentals','Structured course: gesture, form, proportion. Many lessons free on YouTube',2],
+ ['drawing','Proko on YouTube','https://www.youtube.com/@ProkoTV','Free anatomy and figure lessons',2],
+ ['drawing','Drawabox (free fundamentals)','https://drawabox.com/','Lines, boxes, construction. Pair with gesture practice',2],
+ ['drawing','Quickposes (timed pose reference)','https://quickposes.com/','Full figures, hands, faces. Alternative to Line of Action',2],
+ ['drawing','Posemaniacs (3D pose & anatomy reference)','https://www.posemaniacs.com/','Rotate poses to study the body from any angle',2],
+ ['drawing','Love Life Drawing (YouTube)','https://www.youtube.com/@LoveLifeDrawing','Beginner-friendly figure and portrait tutorials',2],
+ ['drawing','Sinix Design (YouTube)','https://www.youtube.com/@SinixDesign','Anatomy shortcuts and character design',2],
+ ['drawing','Character Design References','https://www.characterdesignreferences.com/','Inspiration and studies for designing your own characters',2],
+ ['drawing','Book: Figure Drawing: Design and Invention (Michael Hampton)','','Clear, construction-based approach to the figure',2],
+ ['rigging','Blender Studio: Introduction to Rigging','https://studio.blender.org/training/humane-rigging/','Start here: bones, weights, constraints',2],
+ ['rigging','Blender Studio: Rigging Fundamentals','https://studio.blender.org/training/rigging-fundamentals/','',2],
+ ['rigging','Blender Studio: Stylized Character Workflow','https://studio.blender.org/training/stylized-character-workflow/','Model, sculpt and rig a full character start to finish',2],
+ ['rigging','Blender Studio: Blender Fundamentals','https://studio.blender.org/training/blender-2-8-fundamentals/','Interface and core tools if anything feels unfamiliar',2],
+ ['rigging','Blender Manual: Armatures','https://docs.blender.org/manual/en/latest/animation/armatures/index.html','Reference for bones, posing and skinning',2],
+ ['rigging','Blender Manual: Rigify (4.1 docs)','https://docs.blender.org/manual/en/4.1/addons/rigging/rigify/index.html','Auto-rig a humanoid. Rigify is now an extension but works the same',2],
+ ['rigging','CGDive (YouTube)','https://www.youtube.com/@CGDive','Rigging-focused channel: Rigify, game rigs, Unreal export',2],
+ ['rigging','Grant Abbitt (YouTube)','https://www.youtube.com/@grabbitt','Beginner character modeling series',2],
+ ['rigging','CG Boost (YouTube)','https://www.youtube.com/@CGBoost','Blender beginner and character projects',2],
+ ['rigging','Mixamo (free auto-rig + animations)','https://www.mixamo.com/','Quick way to test a model in motion; compare to your own rig',2],
+ ['rigging','CG Cookie (paid)','https://cgcookie.com/','Structured Blender courses incl. character rigging',2]
 ];
+const SEED_V=2;
+const seedRes=r=>({id:uid(),topic:r[0],title:r[1],url:r[2],note:r[3],status:'todo'});
 function fresh(){
  return {settings:{start:'2026-11-13',end:'2027-03-13',goals:{aplus:240,neosoul:150,drawing:240,rigging:180,unreal:360}},
   logs:[],checks:[],clips:[],
-  resources:SEED_RES.map(r=>({id:uid(),topic:r[0],title:r[1],url:r[2],note:r[3],status:'todo'}))};
+  resources:SEED_RES.map(seedRes),seedV:SEED_V};
 }
 let S;
 try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){S=null}
 if(!S||!S.settings)S=fresh();
+if((S.seedV||1)<SEED_V){
+ const have=new Set(S.resources.map(r=>r.topic+'|'+(r.url||r.title)));
+ SEED_RES.filter(r=>(r[4]||1)>(S.seedV||1)&&!have.has(r[0]+'|'+(r[2]||r[1]))).forEach(r=>S.resources.push(seedRes(r)));
+ S.seedV=SEED_V;save();
+}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 
 let tab='log', fTopic=TOPICS[0].id, fMin=30;

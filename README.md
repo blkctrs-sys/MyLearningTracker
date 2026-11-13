@@ -17,6 +17,7 @@ It's a single HTML file with no sign-up, no server and no build step. Everything
 - **Log**: pick a topic, minutes, and a short note. Tick "Recorded" to drop it into the Content pipeline.
 - **Progress**: today / streak / weekly goals per topic, a consistency heatmap, and weekly minutes by topic. Weekly goals and the 4-month date range are editable at the bottom.
 - **Resources**: a starter list of courses, channels and references for each topic, plus your own links. Tap the status button to cycle todo / doing / done.
+- **Notes**: a separate notebook for each topic. Pick a topic, write a note, and edit or delete it later.
 - **Checkpoints**: every 2–4 weeks, record a score or result per topic so improvement is visible.
 - **Content**: recorded sessions with tags for Edited, YouTube, Twitch, IG/TikTok.
 

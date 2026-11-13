@@ -46,6 +46,11 @@ a{color:var(--acc)}
 .pill{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);cursor:pointer;background:none;color:var(--mut);margin-right:4px}
 .pill.on{background:#5fd39a;color:#0b0e16;border-color:#5fd39a}
 .muted{color:var(--mut)}
+.clock{font-size:44px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:1px;margin:4px 0}
+.hint{background:#0f1218;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font-size:13px;margin-top:8px}
+.btns{display:flex;gap:8px;flex-wrap:wrap}.btns .btn{margin-top:10px}
+button.btn.alt{background:transparent;color:var(--tx);border:1px solid var(--line)}
+#tm{background:none;border:0;color:var(--acc);font:inherit;font-size:13px;cursor:pointer;padding:0;margin-left:8px}
 .note-body{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:4px}
 .chip .n{opacity:.7;margin-left:4px}
 </style>
@@ -60,7 +65,7 @@ const TOPICS=[
  {id:'aplus',name:'CompTIA A+',color:'#4da3ff'},
  {id:'neosoul',name:'Neo Soul (Pickup)',color:'#c58bff'},
  {id:'drawing',name:'Drawing: People',color:'#ffb454'},
- {id:'rigging',name:'Blender Rigging',color:'#5fd39a'},
+ {id:'rigging',name:'Blender: Character Creation',color:'#5fd39a'},
  {id:'unreal',name:'Unreal + Dodgeball',color:'#ff6b81'}
 ];
 const TN=Object.fromEntries(TOPICS.map(t=>[t.id,t]));
@@ -106,25 +111,162 @@ const SEED_RES=[
  ['rigging','Grant Abbitt (YouTube)','https://www.youtube.com/@grabbitt','Beginner character modeling series',2],
  ['rigging','CG Boost (YouTube)','https://www.youtube.com/@CGBoost','Blender beginner and character projects',2],
  ['rigging','Mixamo (free auto-rig + animations)','https://www.mixamo.com/','Quick way to test a model in motion; compare to your own rig',2],
- ['rigging','CG Cookie (paid)','https://cgcookie.com/','Structured Blender courses incl. character rigging',2]
+ ['rigging','CG Cookie (paid)','https://cgcookie.com/','Structured Blender courses incl. character rigging',2],
+ // seed version 3: modeling and sculpting
+ ['rigging','Blender Manual: Mesh modeling','https://docs.blender.org/manual/en/latest/modeling/meshes/index.html','Reference for edit-mode tools (extrude, loop cut, bevel)',3],
+ ['rigging','Blender Manual: Sculpting','https://docs.blender.org/manual/en/latest/sculpt_paint/sculpting/index.html','Brushes, dynamic topology, remeshing',3],
+ ['rigging','Ryan King Art (YouTube)','https://www.youtube.com/@ryankingart','Beginner-friendly modeling and character tutorials',3],
+ ['rigging','YanSculpts (YouTube)','https://www.youtube.com/@YanSculpts','Character sculpting in Blender: heads, bodies, stylized characters',3]
 ];
-const SEED_V=2;
+const SEED_V=3;
+const DEFAULT_GOALS={aplus:210,neosoul:120,drawing:300,rigging:300,unreal:180};
+const OLD_GOALS={aplus:240,neosoul:150,drawing:240,rigging:180,unreal:360};
+const REVIEW_DAYS=[1,3,7,21,60];
 const seedRes=r=>({id:uid(),topic:r[0],title:r[1],url:r[2],note:r[3],status:'todo'});
 function fresh(){
- return {settings:{start:'2026-11-13',end:'2027-03-13',goals:{aplus:240,neosoul:150,drawing:240,rigging:180,unreal:360}},
-  logs:[],checks:[],clips:[],notes:[],
+ return {settings:{start:'2026-11-13',end:'2027-03-13',goals:{...DEFAULT_GOALS}},
+  logs:[],checks:[],clips:[],notes:[],next:{},modified:0,goalsV:2,
   resources:SEED_RES.map(seedRes),seedV:SEED_V};
 }
 let S;
 try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){S=null}
 if(!S||!S.settings)S=fresh();
-S.notes=S.notes||[];
-if((S.seedV||1)<SEED_V){
- const have=new Set(S.resources.map(r=>r.topic+'|'+(r.url||r.title)));
- SEED_RES.filter(r=>(r[4]||1)>(S.seedV||1)&&!have.has(r[0]+'|'+(r[2]||r[1]))).forEach(r=>S.resources.push(seedRes(r)));
- S.seedV=SEED_V;save();
+// Upgrades older saved data / backups. Does not count as a user change for sync.
+function migrate(){
+ S.notes=S.notes||[];S.next=S.next||{};S.logs=S.logs||[];S.checks=S.checks||[];S.clips=S.clips||[];S.resources=S.resources||[];
+ S.notes.forEach(n=>{if(n.due===undefined){n.step=0;n.due=addDays(today(),1)}});
+ if((S.seedV||1)<SEED_V){
+  const have=new Set(S.resources.map(r=>r.topic+'|'+(r.url||r.title)));
+  SEED_RES.filter(r=>(r[4]||1)>(S.seedV||1)&&!have.has(r[0]+'|'+(r[2]||r[1]))).forEach(r=>S.resources.push(seedRes(r)));
+  S.seedV=SEED_V;
+ }
+ if(!S.goalsV){
+  if(TOPICS.every(t=>S.settings.goals[t.id]===OLD_GOALS[t.id]))S.settings.goals={...DEFAULT_GOALS};
+  S.goalsV=2;
+ }
 }
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+migrate();saveLocal();
+function saveLocal(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+function save(){S.modified=Date.now();saveLocal();schedulePush()}
+const hasData=x=>!!x&&((x.logs||[]).length+(x.notes||[]).length+(x.checks||[]).length+(x.clips||[]).length)>0;
+
+/* ---------- GitHub sync (data file in a private repo) ---------- */
+const SKEY='learning-tracker-sync';
+let SY={};try{SY=JSON.parse(localStorage.getItem(SKEY))||{}}catch(e){}
+let syncMsg='',syncErr=false,pushTimer=null,pushing=false,pushAgain=false;
+const syncOn=()=>!!(SY.owner&&SY.repo&&SY.token);
+const saveSY=()=>{try{localStorage.setItem(SKEY,JSON.stringify(SY))}catch(e){}};
+const b64e=str=>{const b=new TextEncoder().encode(str);let r='';for(let i=0;i<b.length;i+=8192)r+=String.fromCharCode.apply(null,b.subarray(i,i+8192));return btoa(r)};
+const b64d=str=>new TextDecoder().decode(Uint8Array.from(atob(str.replace(/\s/g,'')),c=>c.charCodeAt(0)));
+function gh(method,body){
+ const path=(SY.path||'data.json').split('/').map(encodeURIComponent).join('/');
+ return fetch(`https://api.github.com/repos/${encodeURIComponent(SY.owner)}/${encodeURIComponent(SY.repo)}/contents/${path}`,
+  {method,cache:'no-store',headers:{Authorization:'Bearer '+SY.token,Accept:'application/vnd.github+json'},body});
+}
+// Refresh only what's safe: never redraw a form the user is typing in.
+function softRender(){const a=document.activeElement;if(a&&a.matches('input,textarea,select')&&a.closest('main'))updSub();else render()}
+function setSync(ok,msg){syncErr=!ok;syncMsg=msg;if(ok){SY.lastSync=Date.now();saveSY()}softRender()}
+function ghError(r){return r.status===401?'GitHub rejected the token (expired or wrong).':r.status===404?'Repo or file not found. Check the owner/repo name and that the token can access it.':r.status===403?'Token lacks permission (needs Contents: read and write).':'GitHub error '+r.status}
+async function fetchRemote(){
+ const r=await gh('GET');
+ if(r.status===404){const m=await r.json().catch(()=>({}));if(/not found/i.test(m.message||'')&&SY.repoOk)return null;
+  const chk=await fetch(`https://api.github.com/repos/${encodeURIComponent(SY.owner)}/${encodeURIComponent(SY.repo)}`,{cache:'no-store',headers:{Authorization:'Bearer '+SY.token}});
+  if(chk.ok){SY.repoOk=true;return null}throw ghError(chk)}
+ if(!r.ok)throw ghError(r);
+ const j=await r.json();SY.sha=j.sha;return JSON.parse(b64d(j.content));
+}
+function adopt(remote){S=remote;migrate();saveLocal();SY.base=S.modified||0;saveSY();render()}
+// Both sides changed since the last sync: keep everything from both (newer side wins for the same item / settings).
+function merge(a,b){
+ const nw=(a.modified||0)>=(b.modified||0)?a:b, old=nw===a?b:a, out={...nw};
+ ['logs','notes','checks','clips','resources'].forEach(k=>{const m=new Map((old[k]||[]).map(x=>[x.id,x]));(nw[k]||[]).forEach(x=>m.set(x.id,x));out[k]=[...m.values()]});
+ out.next={...(old.next||{}),...(nw.next||{})};out.modified=Date.now();return out;
+}
+const localChanged=()=>(S.modified||0)!==(SY.base||0);
+async function pull(){
+ if(!syncOn())return;
+ try{
+  const remote=await fetchRemote();
+  if(!remote){SY.sha=null;await push();return}
+  const rm=remote.modified||0;
+  if(!SY.lastSync){ // first connection on this device
+   if(hasData(S)&&hasData(remote)){
+    const c=x=>`${x.logs.length} sessions, ${(x.notes||[]).length} notes`;
+    if(confirm(`GitHub already has data (${c(remote)}).\nThis browser has ${c(S)}.\n\nOK = combine both (recommended).\nCancel = just load GitHub's copy into this browser.`)){S=merge(S,remote);migrate();saveLocal();render();await push();return}
+    adopt(remote);
+   }else if(hasData(S)){S.modified=Date.now();saveLocal();await push();return}
+   else adopt(remote);
+  }else if(rm!==(SY.base||0)){ // changed on another device
+   if(localChanged()){S=merge(S,remote);migrate();saveLocal();render();await push();return}
+   adopt(remote);
+  }else if(localChanged()){await push();return}
+  setSync(true,'Up to date');
+ }catch(e){setSync(false,typeof e==='string'?e:'Could not reach GitHub (offline?)')}
+}
+function schedulePush(){if(!syncOn())return;clearTimeout(pushTimer);pushTimer=setTimeout(push,4000)}
+async function push(){
+ if(!syncOn())return;clearTimeout(pushTimer);pushTimer=null;
+ if(pushing){pushAgain=true;return}pushing=true;
+ try{
+  for(let attempt=0;attempt<3;attempt++){
+   const sent=S.modified||0, body={message:'Update learning data',content:b64e(JSON.stringify(S))};if(SY.sha)body.sha=SY.sha;
+   const r=await gh('PUT',JSON.stringify(body));
+   if(r.ok){const j=await r.json();SY.sha=j.content.sha;SY.base=sent;setSync(true,'Saved to GitHub');break}
+   if((r.status===409||r.status===422)&&attempt<2){ // another device saved first: combine and retry
+    const remote=await fetchRemote();if(remote){S=merge(S,remote);migrate();saveLocal();render()}continue;
+   }
+   throw ghError(r);
+  }
+ }catch(e){setSync(false,typeof e==='string'?e:'Could not reach GitHub (offline?). Will retry on next change.')}
+ finally{pushing=false;if(pushAgain){pushAgain=false;push()}}
+}
+document.addEventListener('visibilitychange',()=>{if(!syncOn())return;if(document.hidden){if(pushTimer)push()}else if(!pushTimer&&!pushing)pull()});
+window.addEventListener('online',()=>{if(syncOn())pull()});
+
+/* ---------- focus timer (per device) ---------- */
+const TKEY='learning-tracker-timer';
+let T=null;try{T=JSON.parse(localStorage.getItem(TKEY))}catch(e){}
+const saveT=()=>{try{T?localStorage.setItem(TKEY,JSON.stringify(T)):localStorage.removeItem(TKEY)}catch(e){}};
+let fLen=25, sugOpen=false, sIdx=0, breakOver=false, rShow=false, AC=null;
+const clock=ms=>{const t=Math.max(0,Math.ceil(ms/1000));return `${Math.floor(t/60)}:${pad(t%60)}`};
+function ding(){try{if(!AC)return;[0,.35,.7].forEach(o=>{const g=AC.createGain(),os=AC.createOscillator();os.frequency.value=880;os.connect(g);g.connect(AC.destination);
+ g.gain.setValueAtTime(.0001,AC.currentTime+o);g.gain.exponentialRampToValueAtTime(.3,AC.currentTime+o+.02);g.gain.exponentialRampToValueAtTime(.0001,AC.currentTime+o+.3);os.start(AC.currentTime+o);os.stop(AC.currentTime+o+.32)})}catch(e){}
+ try{navigator.vibrate&&navigator.vibrate([200,100,200])}catch(e){}}
+function notify(msg){try{if(document.hidden&&'Notification' in window&&Notification.permission==='granted')new Notification('Learning Tracker',{body:msg})}catch(e){}}
+function tick(){
+ const hd=$('#tm');
+ if(!T||T.mode==='wrap'||T.mode==='done'){if(hd)hd.textContent=T?.mode==='wrap'?'⏱ session done: log it':'';document.title='Learning Tracker';return}
+ const rem=T.paused!=null?T.paused:T.end-Date.now();
+ if(rem<=0&&T.paused==null){
+  if(T.mode==='focus'){T={mode:'wrap',topic:T.topic,min:T.planned};notify(`${TN[T.topic].name}: time's up. Log what you learned.`)}
+  else{T=null;breakOver=true;notify('Break over. Ready for another round?')}
+  saveT();ding();tab='log';render();return;
+ }
+ const c=clock(rem),el=$('#tmr');if(el)el.textContent=c;
+ if(hd)hd.textContent=`${T.mode==='focus'?'⏱':'☕'} ${c}${T.paused!=null?' (paused)':''}`;
+ document.title=`${c} · ${T.mode==='focus'?TN[T.topic].name:'Break'}`;
+}
+setInterval(tick,500);
+
+/* ---------- what next? ---------- */
+function suggestions(){
+ const t=today(),wt=weekTotals(weekStart(t)),frac=(((parse(t).getDay()+6)%7)+1)/7;
+ const lastToday=[...S.logs].filter(l=>l.date===t).sort((a,b)=>b.id.localeCompare(a.id))[0];
+ const L=TOPICS.filter(x=>(S.settings.goals[x.id]||0)>0).map(x=>{const g=S.settings.goals[x.id];return {x,g,done:wt[x.id],behind:g*frac-wt[x.id],ratio:wt[x.id]/g}})
+  .sort((a,b)=>b.behind-a.behind||a.ratio-b.ratio);
+ if(lastToday&&L.length>1&&L[0].x.id===lastToday.topic&&L[1].behind>0)L.push(L.shift()); // encourage switching
+ return L;
+}
+
+/* ---------- shared helpers ---------- */
+function addSession(topic,date,min,note,rec,learned,next){
+ S.logs.push({id:uid(),date,topic,min,note:note.trim(),rec:!!rec});
+ if(rec)S.clips.push({id:uid(),date,topic,title:`${TN[topic].name}${note.trim()?': '+note.trim().slice(0,60):' session'}`,edited:false,yt:false,tw:false,ig:false});
+ if(learned&&learned.trim())S.notes.push(newNote(topic,'',learned));
+ if(next!==undefined){if(next.trim())S.next[topic]=next.trim();else delete S.next[topic]}
+}
+function newNote(topic,title,body){return {id:uid(),topic,date:today(),updated:today(),title:title.trim(),body:body.trim(),step:0,due:addDays(today(),1)}}
+const dueNotes=()=>S.notes.filter(n=>n.due&&n.due<=today()).sort((a,b)=>a.due.localeCompare(b.due));
 
 let tab='log', fTopic=TOPICS[0].id, fMin=30, nTopic=TOPICS[0].id, nEdit=null;
 const drafts={};
@@ -139,12 +281,44 @@ function weekTotals(ws){const o=Object.fromEntries(TOPICS.map(t=>[t.id,0]));
  const we=addDays(ws,6);S.logs.forEach(l=>{if(l.date>=ws&&l.date<=we)o[l.topic]+=l.min});return o}
 
 /* ---------- views ---------- */
+function vFocus(){
+ const chips=(cur,act)=>`<div class="chips">${TOPICS.map(x=>`<button type="button" class="chip ${x.id===cur?'on':''}" style="${x.id===cur?`background:${x.color};border-color:${x.color}`:''}" data-a="${act}" data-v="${x.id}">${esc(x.name)}</button>`).join('')}</div>`;
+ const nx=id=>S.next[id]?`<div class="hint">➡️ <b>Next step you planned:</b> ${esc(S.next[id])}</div>`:'';
+ if(T&&T.mode==='focus'){const x=TN[T.topic];
+  return `<div class="card" style="border-color:${x.color}"><h2><span class="dot" style="background:${x.color}"></span>Focusing: ${esc(x.name)}</h2>
+   <div class="clock" id="tmr">${clock(T.paused!=null?T.paused:T.end-Date.now())}</div>${nx(T.topic)}
+   <div class="btns"><button class="btn alt" data-a="fp">${T.paused!=null?'Resume':'Pause'}</button><button class="btn alt" data-a="ff">Finish now</button><button class="btn alt" data-a="fc">Cancel</button></div></div>`}
+ if(T&&T.mode==='wrap'){const x=TN[T.topic];
+  return `<div class="card" style="border-color:${x.color}"><h2>✅ ${esc(x.name)} session done</h2><form data-form="wrap">
+   <div class="row"><div><label>Minutes</label><input type="number" name="min" min="1" max="720" value="${T.min}" required></div><div></div></div>
+   <label>What did you work on?</label><input name="note" placeholder="lesson, exercise, chapter…">
+   <label>One thing you learned (saved to ${esc(x.name)} notes for review)</label><textarea name="learned" rows="2" placeholder="Explain it in one or two sentences, in your own words"></textarea>
+   <label>Next step for next time</label><input name="next" value="${esc(S.next[T.topic]||'')}" placeholder="So you can jump straight back in">
+   <label style="display:flex;gap:8px;align-items:center;color:var(--tx)"><input type="checkbox" name="rec" style="width:auto"> Recorded this session</label>
+   <div class="btns"><button class="btn">Save session</button><button type="button" class="btn alt" data-a="fd">Don't log</button></div></form></div>`}
+ if(T&&T.mode==='done'){const r=S.logs.filter(l=>l.date===today()).length;
+  return `<div class="card"><h2>Logged. Take a break</h2><div class="muted" style="font-size:13px">Stand up, look away from the screen, get water.${r>=4&&r%4===0?' That\'s 4 sessions in a row, so take a longer break.':''}</div>
+   <div class="btns"><button class="btn" data-a="bs" data-v="5">5 min break</button><button class="btn alt" data-a="bs" data-v="15">15 min break</button><button class="btn alt" data-a="bx">Skip</button></div></div>`}
+ if(T&&T.mode==='break')return `<div class="card"><h2>☕ Break</h2><div class="clock" id="tmr">${clock(T.paused!=null?T.paused:T.end-Date.now())}</div>
+   <div class="btns"><button class="btn alt" data-a="bx">End break</button></div></div>`;
+ const L=suggestions(), sg=L.length?L[sIdx%L.length]:null;
+ return `<div class="card"><h2>${breakOver?'Break over. Next round?':'Focus session'}</h2>
+  ${sugOpen&&sg?`<div class="hint" style="margin:0 0 10px;border-color:${sg.x.color}"><b>Suggested: ${esc(sg.x.name)}</b><br><small class="muted">${fmt(Math.round(sg.done))} of ${fmt(sg.g)} this week · ${sg.behind>0?`about ${fmt(Math.round(sg.behind))} behind pace`:'on pace (everything is on track)'}</small>${S.next[sg.x.id]?`<br>➡️ ${esc(S.next[sg.x.id])}`:''}
+   <div class="btns"><button class="btn" data-a="su" data-v="${sg.x.id}">Do this</button><button class="btn alt" data-a="sa">Something else</button></div></div>`:''}
+  <label>Topic</label>${chips(fTopic,'ft')}
+  <label>Length</label><div class="chips">${[15,25,30,45].map(m=>`<button type="button" class="chip ${m===fLen?'on':''}" style="${m===fLen?'background:var(--acc);border-color:var(--acc)':''}" data-a="fl" data-v="${m}">${m} min</button>`).join('')}</div>
+  ${nx(fTopic)}
+  <div class="btns"><button class="btn" data-a="fs">▶ Start ${fLen} min</button>${sugOpen?'':'<button class="btn alt" data-a="sg">What next?</button>'}</div>
+  ${dueNotes().length?`<div class="muted" style="font-size:13px;margin-top:10px">🧠 ${dueNotes().length} note${dueNotes().length>1?'s':''} ready to review. <a href="#" data-a="tab" data-v="notes">Review now</a> (a good warm-up)</div>`:''}</div>`;
+}
+
 function vLog(){
  const t=today();
  const todayBy=Object.fromEntries(TOPICS.map(x=>[x.id,0]));
  S.logs.filter(l=>l.date===t).forEach(l=>todayBy[l.topic]+=l.min);
  const recent=[...S.logs].sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id)).slice(0,40);
- return `<div class="card"><h2>Log a session</h2>
+ const busy=T&&(T.mode==='focus'||T.mode==='wrap');
+ return vFocus()+(busy?'':`<div class="card"><h2>Log a session manually</h2>
  <form data-form="log">
   <label>Topic</label>
   <div class="chips">${TOPICS.map(x=>`<button type="button" class="chip ${x.id===fTopic?'on':''}" style="${x.id===fTopic?`background:${x.color};border-color:${x.color}`:''}" data-a="ft" data-v="${x.id}">${esc(x.name)}</button>`).join('')}</div>
@@ -153,9 +327,11 @@ function vLog(){
   <div class="chips">${[15,30,45,60,90,120].map(m=>`<button type="button" class="chip" data-a="fm" data-v="${m}">${m}m</button>`).join('')}</div>
   <label>What did you do? (lesson, chapter, exercise, result)</label>
   <textarea name="note" rows="2"></textarea>
+  <label>One thing you learned (optional, saved to notes for review)</label><input name="learned">
+  <label>Next step for next time (optional)</label><input name="next" placeholder="${esc(S.next[fTopic]||'')}">
   <label style="display:flex;gap:8px;align-items:center;color:var(--tx)"><input type="checkbox" name="rec" style="width:auto"> Recorded this session (adds it to Content)</label>
   <button class="btn">Add session</button>
- </form></div>
+ </form></div>`)+`
  <div class="card"><h2>Today</h2>${TOPICS.map(x=>`<div class="item"><span><span class="dot" style="background:${x.color}"></span>${esc(x.name)}</span><span class="${todayBy[x.id]?'':'muted'}">${todayBy[x.id]?fmt(todayBy[x.id]):'not yet'}</span></div>`).join('')}</div>
  <div class="card"><h2>Recent sessions</h2>${recent.length?recent.map(l=>`<div class="item"><div><span class="dot" style="background:${TN[l.topic].color}"></span><b>${esc(TN[l.topic].name)}</b> · ${fmt(l.min)}${l.rec?' · 🎥':''}<br><small>${esc(l.date)}${l.note?' — '+esc(l.note):''}</small></div><button class="ghost" data-a="dl" data-v="${l.id}">✕</button></div>`).join(''):'<span class="muted">Nothing logged yet.</span>'}</div>`;
 }
@@ -199,7 +375,25 @@ function vDash(){
   <label>Weekly goals (minutes)</label>
   ${TOPICS.map(x=>`<div class="item" style="align-items:center"><span><span class="dot" style="background:${x.color}"></span>${esc(x.name)}</span><input type="number" style="width:90px" min="0" data-goal="${x.id}" value="${S.settings.goals[x.id]||0}"></div>`).join('')}
   <div class="chips" style="margin-top:12px"><button class="chip" data-a="exp">Export backup</button><button class="chip" data-a="imp">Import backup</button><button class="chip" data-a="reset">Reset everything</button></div>
-  <div class="muted" style="font-size:12px;margin-top:8px">Data lives in this browser. Export a backup now and then (weekly is plenty).</div></div>`;
+  <div class="muted" style="font-size:12px;margin-top:8px">${syncOn()?'Backups are optional while GitHub sync is on, but a monthly export does no harm.':'Data lives in this browser. Turn on GitHub sync below, or export a backup weekly.'}</div></div>
+ ${vSync()}`;
+}
+function vSync(){
+ if(syncOn())return `<div class="card"><h2>☁ GitHub sync</h2>
+  <div>Saving to <b>${esc(SY.owner)}/${esc(SY.repo)}</b> → <code>${esc(SY.path||'data.json')}</code></div>
+  <div class="${syncErr?'':'muted'}" style="font-size:13px;margin-top:4px;${syncErr?'color:#ff6b81':''}">${esc(syncMsg||'Connecting…')}${SY.lastSync?` · last synced ${new Date(SY.lastSync).toLocaleString()}`:''}</div>
+  <div class="chips" style="margin-top:10px"><button class="chip" data-a="sync-now">Sync now</button><button class="chip" data-a="sync-off">Disconnect this browser</button></div>
+  <div class="muted" style="font-size:12px;margin-top:8px">Changes save to GitHub a few seconds after you make them, and the latest copy loads when you open the site. Set this up once on each device you use.</div></div>`;
+ return `<div class="card"><h2>☁ GitHub sync</h2>
+  <div class="muted" style="font-size:13px">Saves your data to a <b>private</b> GitHub repo so it's backed up and the same on every device.</div>
+  <ol style="font-size:13px;padding-left:18px;margin:8px 0">
+   <li>Create a <b>private</b> repo, e.g. <code>learning-tracker-data</code> (tick "Add a README").</li>
+   <li>GitHub → Settings → Developer settings → Personal access tokens → <b>Fine-grained tokens</b> → Generate new token. Repository access: <b>Only select repositories</b> → that repo. Permissions: <b>Contents: Read and write</b>. Pick an expiry (e.g. 1 year).</li>
+   <li>Paste the details below. Repeat this step on each device.</li></ol>
+  <form data-form="sync"><div class="row"><div><label>GitHub username</label><input name="owner" required autocapitalize="off"></div><div><label>Private repo name</label><input name="repo" required autocapitalize="off" placeholder="learning-tracker-data"></div></div>
+  <label>Token</label><input name="token" type="password" required autocomplete="off" placeholder="github_pat_…">
+  <div class="muted" style="font-size:12px;margin-top:6px">The token is stored only in this browser and is never included in your data or backups.</div>
+  <button class="btn">Connect</button></form></div>`;
 }
 
 function vRes(){
@@ -216,7 +410,7 @@ function vRes(){
 function vChk(){
  const ch=[...S.checks].sort((a,b)=>b.date.localeCompare(a.date));
  return `<div class="card"><h2>Add a checkpoint</h2>
-  <div class="muted" style="font-size:13px;margin-bottom:6px">Do one per topic every 2–4 weeks so you can compare. Ideas: A+ practice exam score, one finished full-figure drawing, a rig you made, a playable build.</div>
+  <div class="muted" style="font-size:13px;margin-bottom:6px">Do one per topic every 2–4 weeks so you can compare. Ideas: A+ practice exam score, one finished full-figure drawing, a character you modeled or rigged, a playable build.</div>
   <form data-form="chk"><div class="row"><div><label>Topic</label><select name="topic">${TOPICS.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
   <div><label>Date</label><input type="date" name="date" value="${today()}" required></div></div>
   <label>Score / result (optional)</label><input name="score" placeholder="e.g. 72% on practice exam 1">
@@ -249,9 +443,17 @@ function vNotes(){
     <div style="display:flex;gap:8px"><button class="btn">Save changes</button><button type="button" class="ghost" style="margin-top:12px" data-a="nx">Cancel</button></div></form></div>`
   :`<div class="item"><div style="min-width:0">${n.title?`<b>${esc(n.title)}</b><br>`:''}<small>${esc(n.date)}${n.updated&&n.updated!==n.date?` · edited ${esc(n.updated)}`:''}</small><div class="note-body">${esc(n.body)}</div></div>
     <div style="display:flex;gap:6px;flex:none"><button class="ghost" data-a="ne" data-v="${n.id}">Edit</button><button class="ghost" data-a="nd" data-v="${n.id}">✕</button></div></div>`;
- return `<div class="card"><h2>Notebook</h2><div class="chips">${chips}</div></div>
+ const due=dueNotes(), rv=due[0];
+ const review=rv?(()=>{const q=/\?$/.test(rv.title), rt=TN[rv.topic], hidden=q&&!rShow;
+  return `<div class="card" style="border-color:${rt.color}"><h2>🧠 Review (${due.length} due)</h2>
+   <small><span class="dot" style="background:${rt.color}"></span>${esc(rt.name)} · written ${esc(rv.date)}</small>
+   ${rv.title?`<div style="margin-top:6px"><b>${esc(rv.title)}</b></div>`:''}
+   ${hidden?`<div class="muted" style="font-size:13px;margin-top:4px">Answer it in your head first.</div><div class="btns"><button class="btn" data-a="rshow">Show answer</button></div>`
+    :`<div class="note-body">${esc(rv.body)}</div><div class="btns"><button class="btn" data-a="rv" data-v="${rv.id}|got">Got it</button><button class="btn alt" data-a="rv" data-v="${rv.id}|fuzzy">Fuzzy</button><button class="btn alt" data-a="rv" data-v="${rv.id}|stop">Stop reviewing this</button></div>`}
+   <div class="muted" style="font-size:12px;margin-top:8px">Notes come back after 1, 3, 7, 21, then 60 days. Tip: give a note a title ending in "?" and it becomes a quiz question.</div></div>`})():'';
+ return review+`<div class="card"><h2>Notebook</h2><div class="chips">${chips}</div></div>
  <div class="card"><h2><span class="dot" style="background:${x.color}"></span>New ${esc(x.name)} note</h2><form data-form="note">
-  <label>Title (optional)</label><input name="title" data-draft="title" value="${esc(dr.title)}" placeholder="e.g. Key takeaway from today">
+  <label>Title (optional)</label><input name="title" data-draft="title" value="${esc(dr.title)}" placeholder="e.g. What does Rigify's metarig do?">
   <label>Note</label><textarea name="body" data-draft="body" rows="5" required placeholder="What you learned, questions, things to try next…">${esc(dr.body)}</textarea>
   <button class="btn">Save note</button></form></div>
  <div class="card"><h2>${esc(x.name)} notes (${list.length})</h2>${list.length?list.map(item).join(''):'<span class="muted">No notes for this topic yet.</span>'}</div>`;
@@ -259,19 +461,45 @@ function vNotes(){
 const VIEWS={log:vLog,dash:vDash,res:vRes,notes:vNotes,chk:vChk,content:vContent};
 
 function render(){
- $('#nav').innerHTML=TABS.map(t=>`<button class="${t[0]===tab?'on':''}" data-a="tab" data-v="${t[0]}">${t[1]}</button>`).join('');
+ const dn=dueNotes().length;
+ $('#nav').innerHTML=TABS.map(t=>`<button class="${t[0]===tab?'on':''}" data-a="tab" data-v="${t[0]}">${t[1]}${t[0]==='notes'&&dn?` (${dn})`:''}</button>`).join('');
  $('#view').innerHTML=VIEWS[tab]();
- const t=today(), n=S.logs.length;
- $('#sub').textContent=`${S.settings.start} → ${S.settings.end} · ${n} session${n===1?'':'s'} logged`;
+ updSub();
+}
+function updSub(){
+ const n=S.logs.length;
+ $('#sub').innerHTML=`${S.settings.start} → ${S.settings.end} · ${n} session${n===1?'':'s'} logged${syncOn()?` · <span title="${esc(syncMsg)}">${syncErr?'⚠ sync problem':'☁ synced'}</span>`:''}<button id="tm" data-a="tab" data-v="log"></button>`;
+ tick();
 }
 
 /* ---------- events ---------- */
 function download(name,text){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'application/json'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+const UI=new Set(['tab','ft','fl','fs','fp','ff','fc','fd','bs','bx','sg','sa','su','rshow','nt','ne','nx','sync-now','sync-off']);
 document.addEventListener('click',e=>{
  const b=e.target.closest('[data-a]');if(!b)return;
  const a=b.dataset.a,v=b.dataset.v;
- if(a==='tab')tab=v;
- else if(a==='ft')fTopic=v;
+ if(UI.has(a))e.preventDefault();
+ if(a==='tab'){tab=v;rShow=false}
+ else if(a==='ft'){fTopic=v;breakOver=false}
+ else if(a==='fl')fLen=+v;
+ else if(a==='fs'){try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();AC.resume()}catch(x){}
+  try{if('Notification' in window&&Notification.permission==='default')Notification.requestPermission()}catch(x){}
+  T={mode:'focus',topic:fTopic,planned:fLen,end:Date.now()+fLen*6e4,paused:null};breakOver=false;sugOpen=false;saveT()}
+ else if(a==='fp'){if(T.paused!=null){T.end=Date.now()+T.paused;T.paused=null}else T.paused=T.end-Date.now();saveT()}
+ else if(a==='ff'){const left=T.paused!=null?T.paused:T.end-Date.now();T={mode:'wrap',topic:T.topic,min:Math.max(1,Math.round((T.planned*6e4-left)/6e4))};saveT()}
+ else if(a==='fc'){if(!confirm('Cancel this session without logging it?'))return;T=null;saveT()}
+ else if(a==='fd'){if(!confirm("Discard this session? It won't be logged."))return;T=null;saveT()}
+ else if(a==='bs'){T={mode:'break',end:Date.now()+v*6e4,paused:null};saveT()}
+ else if(a==='bx'){T=null;breakOver=false;saveT()}
+ else if(a==='sg'){sugOpen=true;sIdx=0}
+ else if(a==='sa')sIdx++;
+ else if(a==='su'){fTopic=v;sugOpen=false}
+ else if(a==='rshow')rShow=true;
+ else if(a==='rv'){const [id,k]=v.split('|'),n=S.notes.find(x=>x.id===id);rShow=false;
+  if(k==='got'){n.step=Math.min((n.step||0)+1,REVIEW_DAYS.length-1);n.due=addDays(today(),REVIEW_DAYS[n.step])}
+  else if(k==='fuzzy'){n.step=0;n.due=addDays(today(),1)}else n.due=null}
+ else if(a==='sync-now'){pull();return}
+ else if(a==='sync-off'){if(!confirm('Disconnect GitHub sync in this browser? Your data stays here and on GitHub.'))return;SY={};saveSY();syncMsg='';syncErr=false}
  else if(a==='fm'){fMin=+v;const i=document.querySelector('input[name=min]');if(i){i.value=v}return}
  else if(a==='dl')S.logs=S.logs.filter(x=>x.id!==v);
  else if(a==='dr')S.resources=S.resources.filter(x=>x.id!==v);
@@ -285,19 +513,22 @@ document.addEventListener('click',e=>{
  else if(a==='cp'){const [id,k]=v.split('|');const c=S.clips.find(x=>x.id===id);c[k]=!c[k]}
  else if(a==='exp'){download(`learning-tracker-${today()}.json`,JSON.stringify(S,null,2));return}
  else if(a==='imp'){$('#imp').click();return}
- else if(a==='reset'){if(!confirm('Delete ALL data in this browser?'))return;S=fresh()}
- save();render();
+ else if(a==='reset'){if(!confirm(syncOn()?'Delete ALL data in this browser AND the synced copy on GitHub?':'Delete ALL data in this browser?'))return;S=fresh()}
+ if(!UI.has(a))save();render();
 });
 document.addEventListener('submit',e=>{
  const f=e.target.closest('[data-form]');if(!f)return;e.preventDefault();
  const d=Object.fromEntries(new FormData(f));
  if(f.dataset.form==='log'){
   const min=Math.max(1,parseInt(d.min)||0);fMin=min;
-  S.logs.push({id:uid(),date:d.date,topic:fTopic,min,note:d.note.trim(),rec:!!d.rec});
-  if(d.rec)S.clips.push({id:uid(),date:d.date,topic:fTopic,title:`${TN[fTopic].name}${d.note.trim()?': '+d.note.trim().slice(0,60):' session'}`,edited:false,yt:false,tw:false,ig:false});
+  addSession(fTopic,d.date,min,d.note,d.rec,d.learned,d.next.trim()?d.next:undefined);
+ }else if(f.dataset.form==='wrap'){
+  addSession(T.topic,today(),Math.max(1,parseInt(d.min)||1),d.note,d.rec,d.learned,d.next);T={mode:'done'};saveT();
+ }else if(f.dataset.form==='sync'){
+  SY={owner:d.owner.trim(),repo:d.repo.trim(),token:d.token.trim(),path:'data.json'};saveSY();syncMsg='Connecting…';syncErr=false;render();pull();return;
  }else if(f.dataset.form==='res')S.resources.push({id:uid(),topic:d.topic,title:d.title.trim(),url:d.url.trim(),note:d.note.trim(),status:'todo'});
  else if(f.dataset.form==='chk')S.checks.push({id:uid(),topic:d.topic,date:d.date,score:d.score.trim(),note:d.note.trim()});
- else if(f.dataset.form==='note'){if(!d.body.trim())return;S.notes.push({id:uid(),topic:nTopic,date:today(),updated:today(),title:d.title.trim(),body:d.body.trim()});delete drafts[nTopic]}
+ else if(f.dataset.form==='note'){if(!d.body.trim())return;S.notes.push(newNote(nTopic,d.title,d.body));delete drafts[nTopic]}
  else if(f.dataset.form==='nedit'){const n=S.notes.find(x=>x.id===f.dataset.id);if(n&&d.body.trim()){n.title=d.title.trim();n.body=d.body.trim();n.updated=today()}nEdit=null}
  else if(f.dataset.form==='clip')S.clips.push({id:uid(),topic:d.topic,date:d.date,title:d.title.trim(),edited:false,yt:false,tw:false,ig:false});
  save();render();
@@ -310,11 +541,12 @@ document.addEventListener('change',e=>{
  if(t.dataset.set){S.settings[t.dataset.set]=t.value;save();render()}
  else if(t.dataset.goal){S.settings.goals[t.dataset.goal]=Math.max(0,parseInt(t.value)||0);save();render()}
  else if(t.id==='imp'&&t.files[0]){
-  const r=new FileReader();r.onload=()=>{try{const j=JSON.parse(r.result);if(!j.settings||!j.logs)throw 0;S=j;S.notes=S.notes||[];save();render()}catch(x){alert('That file is not a valid backup.')}};
+  const r=new FileReader();r.onload=()=>{try{const j=JSON.parse(r.result);if(!j.settings||!j.logs)throw 0;S=j;migrate();save();render()}catch(x){alert('That file is not a valid backup.')}};
   r.readAsText(t.files[0]);t.value='';
  }
 });
 render();
+if(syncOn())pull();
 </script>
 </body>
 </html>

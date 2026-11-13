@@ -14,12 +14,17 @@ It's a single HTML file with no sign-up, no server and no build step. Everything
 3. After a minute your site is live at `https://<your-username>.github.io/learning-tracker/`.
 
 ## Using it
-- **Log**: pick a topic, minutes, and a short note. Tick "Recorded" to drop it into the Content pipeline.
-- **Progress**: today / streak / weekly goals per topic, a consistency heatmap, and weekly minutes by topic. Weekly goals and the 4-month date range are editable at the bottom.
+- **Log**
+  - **Focus session:** pick a topic and a length (15/25/30/45 min) and hit Start. When time's up you get a sound and, if allowed, a notification. Then log the session with one thing you learned and your next step, and take a 5 or 15 minute break.
+  - **What next?** suggests the topic that's furthest behind its weekly goal (it nudges you to switch if you just did that topic). It also shows the next step you planned last time.
+  - **Log a session manually** for practice done away from the timer.
+- **Progress**: today / streak / weekly goals per topic, a consistency heatmap, and weekly minutes by topic. Weekly goals and the date range are editable in Settings.
 - **Resources**: a starter list of courses, channels and references for each topic, plus your own links. Tap the status button to cycle todo / doing / done.
-- **Notes**: a separate notebook for each topic. Pick a topic, write a note, and edit or delete it later.
+- **Notes**: a separate notebook for each topic. "One thing you learned" from a session lands here too. Notes come back for **review** after 1, 3, 7, 21 and 60 days. Give a note a title ending in "?" and it becomes a quiz question with a hidden answer.
 - **Checkpoints**: every 2–4 weeks, record a score or result per topic so improvement is visible.
 - **Content**: recorded sessions with tags for Edited, YouTube, Twitch, IG/TikTok.
 
 ## Your data
-Saved in your browser's local storage, so each device/browser has its own copy. Use **Export backup** (Progress → Settings) regularly, and **Import backup** to move it to another device. You can commit the exported JSON to the repo as a safety copy.
+Saved in your browser. To back it up and use it on several devices, turn on **GitHub sync** (Progress → GitHub sync). It saves a `data.json` file to a **private** repo you create, using a fine-grained token that can only access that repo. The token stays in your browser and is never included in your data. If two devices change things before syncing, both sets of changes are kept.
+
+Without sync, use **Export backup** / **Import backup** (Progress → Settings).
